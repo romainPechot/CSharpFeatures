@@ -1,0 +1,867 @@
+// ============================================================
+//  CSharpFeatures.cs
+//  A single-file tour of virtually every C# language feature.
+//  Targets C# 12 / .NET 8
+// ============================================================
+
+#region ── Preprocessor Directives ──────────────────────────────
+#define MY_SYMBOL          // define a conditional compilation symbol
+#endregion
+
+// ── Global using (C# 10) ─────────────────────────────────────
+global using System;
+global using System.Collections.Generic;
+
+// ── File-scoped namespace (C# 10) ────────────────────────────
+namespace CSharpFeatures;
+
+using System.Collections;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
+
+// ─────────────────────────────────────────────────────────────
+// 1. DELEGATES & EVENTS
+// ─────────────────────────────────────────────────────────────
+
+// Named delegate type
+delegate int MathOperation(int a, int b);
+
+// Generic delegate
+delegate TResult Transform<TInput, TResult>(TInput input);
+
+// ─────────────────────────────────────────────────────────────
+// 2. ENUMS  (plain, flagged, explicit underlying type)
+// ─────────────────────────────────────────────────────────────
+
+enum Direction { North, South, East, West }
+
+[Flags]
+enum Permissions : byte
+{
+    None    = 0,
+    Read    = 1 << 0,
+    Write   = 1 << 1,
+    Execute = 1 << 2,
+    All     = Read | Write | Execute
+}
+
+// ─────────────────────────────────────────────────────────────
+// 3. INTERFACES  (default members, static abstract members C# 11)
+// ─────────────────────────────────────────────────────────────
+
+interface IShape
+{
+    double Area { get; }            // property contract
+    double Perimeter { get; }
+
+    // Default interface method (C# 8)
+    string Describe() => $"Area={Area:F2}, Perimeter={Perimeter:F2}";
+
+    // Static abstract member (C# 11)
+    static abstract string ShapeKind { get; }
+}
+
+interface IPrintable
+{
+    void Print();
+}
+
+// ─────────────────────────────────────────────────────────────
+// 4. ABSTRACT CLASS  (inheritance baseline)
+// ─────────────────────────────────────────────────────────────
+
+abstract class Animal
+{
+    // Auto-property with init accessor (C# 9)
+    public string Name { get; init; } = "Unknown";
+
+    // Abstract method — must be overridden
+    public abstract string Speak();
+
+    // Virtual method — may be overridden
+    public virtual string Describe() => $"I am {Name}.";
+
+    // Sealed to prevent further override (used lower in hierarchy)
+    // public sealed override ...
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5. CONCRETE CLASS  (all class-level features)
+// ─────────────────────────────────────────────────────────────
+
+/// <summary>XML doc-comment on a class.</summary>
+[Serializable]                          // attribute
+[DebuggerDisplay("Circle r={Radius}")]  // another attribute
+sealed class Circle : Animal, IShape, IPrintable
+{
+    // ── 5a. Fields ──────────────────────────────────────────
+    private double _radius;                        // private backing field
+    private static int _instanceCount = 0;         // static field
+    private readonly Guid _id;                     // readonly field
+    private const double Pi = Math.PI;             // constant
+    private static readonly double TwoPi = 2 * Pi; // static readonly
+
+    // ── 5b. Constructors ────────────────────────────────────
+    public Circle(double radius, string name = "Circle") // default param
+    {
+        _radius = radius > 0 ? radius
+                             : throw new ArgumentOutOfRangeException(nameof(radius));
+        Name    = name;
+        _id     = Guid.NewGuid();
+        Interlocked.Increment(ref _instanceCount); // thread-safe increment
+    }
+
+    // Constructor chaining with  :  this(...)
+    public Circle() : this(1.0) { }
+
+    // Static constructor — runs once before first use
+    static Circle() => Console.WriteLine("[Circle static ctor]");
+
+    // ── 5c. Finalizer (destructor syntax) ───────────────────
+    ~Circle() => Interlocked.Decrement(ref _instanceCount);
+
+    // ── 5d. Properties ──────────────────────────────────────
+    public double Radius                   // full property with validation
+    {
+        get => _radius;
+        set => _radius = value > 0 ? value
+                                    : throw new ArgumentOutOfRangeException(nameof(value));
+    }
+
+    // Expression-bodied computed properties
+    public double Area      => Pi * _radius * _radius;
+    public double Perimeter => TwoPi * _radius;
+    public Guid   Id        => _id;
+
+    // Static property
+    public static int InstanceCount => _instanceCount;
+
+    // Required property (C# 11) — left as a demonstration; commented because
+    // 'required' conflicts with the existing default-valued init above.
+    // public required string Tag { get; init; }
+
+    // ── 5e. Indexer ─────────────────────────────────────────
+    // Returns the n-th approximation of the circumference by n-gon
+    public double this[int n] => n * 2 * _radius * Math.Sin(Pi / n);
+
+    // ── 5f. Methods (various forms) ─────────────────────────
+    public override string Speak() => "...circles don't speak.";
+
+    // Expression-bodied override
+    public override string ToString() =>
+        $"Circle(id={_id.ToString()[..8]}, r={_radius:F3})";
+
+    // Out and ref parameters
+    public void Dimensions(out double area, ref double scale)
+    {
+        area  = Area * scale;
+        scale = scale * 2;          // mutates caller's variable
+    }
+
+    // Params array
+    public static double SumRadii(params double[] radii) =>
+        radii.Sum();
+
+    // Generic method with constraint
+    public static T Clamp<T>(T value, T min, T max) where T : IComparable<T> =>
+        value.CompareTo(min) < 0 ? min :
+        value.CompareTo(max) > 0 ? max : value;
+
+    // Local function (C# 7)
+    public double ScaledArea(double factor)
+    {
+        return Compute(factor);
+
+        double Compute(double f) => Area * f; // local function
+    }
+
+    // Async / await (C# 5)
+    public static async Task<string> FetchDataAsync(CancellationToken ct = default)
+    {
+        await Task.Delay(1, ct);        // simulate async I/O
+        return "data";
+    }
+
+    // Iterator / yield return (C# 2)
+    public IEnumerable<double> RadiusMultiples(int count)
+    {
+        for (int i = 1; i <= count; i++)
+            yield return _radius * i;
+    }
+
+    // IPrintable
+    public void Print() => Console.WriteLine(this);
+
+    // ── 5g. Operator overloading ─────────────────────────────
+    public static Circle  operator +(Circle a, Circle b) => new(a._radius + b._radius);
+    public static Circle  operator *(Circle c, double s) => new(c._radius * s);
+    public static bool    operator ==(Circle? a, Circle? b) =>
+        a?._radius == b?._radius;
+    public static bool    operator !=(Circle? a, Circle? b) => !(a == b);
+
+    // Conversion operators
+    public static implicit operator double(Circle c)  => c._radius;
+    public static explicit operator Circle(double r)  => new(r);
+
+    // ── 5h. Equals / GetHashCode ─────────────────────────────
+    public override bool Equals(object? obj) =>
+        obj is Circle c && c._radius == _radius;
+    public override int GetHashCode() => HashCode.Combine(_radius);
+
+    // IShape static abstract
+    public static string ShapeKind => "Circle";
+}
+
+// ─────────────────────────────────────────────────────────────
+// 6. STRUCTS  (value type, readonly struct, ref struct)
+// ─────────────────────────────────────────────────────────────
+
+readonly struct Point2D(double x, double y)   // primary constructor (C# 12)
+{
+    public double X { get; } = x;
+    public double Y { get; } = y;
+
+    public double DistanceTo(Point2D other) =>
+        Math.Sqrt(Math.Pow(X - other.X, 2) + Math.Pow(Y - other.Y, 2));
+
+    // Deconstruct support
+    public void Deconstruct(out double x, out double y) { x = X; y = Y; }
+
+    public override string ToString() => $"({X}, {Y})";
+}
+
+// ref struct — stack-only, cannot be boxed
+ref struct SpanWrapper
+{
+    private Span<int> _span;
+    public SpanWrapper(Span<int> span) => _span = span;
+    public int Length => _span.Length;
+    public ref int this[int i] => ref _span[i];
+}
+
+// ─────────────────────────────────────────────────────────────
+// 7. RECORDS  (C# 9-10: record class, record struct)
+// ─────────────────────────────────────────────────────────────
+
+// Positional record — auto-generates constructor, Deconstruct, Equals, ToString
+record Person(string FirstName, string LastName)
+{
+    // Additional property
+    public int Age { get; init; }
+
+    // Override ToString (auto-generated one is fine too)
+    public override string ToString() => $"{FirstName} {LastName} (age {Age})";
+}
+
+// Record with inheritance
+record Employee(string FirstName, string LastName, string Department)
+    : Person(FirstName, LastName);
+
+// Record struct (C# 10)
+record struct Temperature(double Celsius)
+{
+    public double Fahrenheit => Celsius * 9 / 5 + 32;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 8. GENERICS  (class, constraints, variance)
+// ─────────────────────────────────────────────────────────────
+
+// Generic class with multiple constraints
+class Repository<T> where T : class, new()
+{
+    private readonly List<T> _store = new();
+    public void Add(T item)       => _store.Add(item);
+    public T?  Get(int index)     => index < _store.Count ? _store[index] : null;
+    public IReadOnlyList<T> All() => _store.AsReadOnly();
+}
+
+// Covariant generic interface (out T)
+interface IReadOnlyBox<out T> { T Value { get; } }
+
+// Contravariant generic interface (in T)
+interface IWriter<in T>       { void Write(T value); }
+
+// ─────────────────────────────────────────────────────────────
+// 9. EXTENSION METHODS
+// ─────────────────────────────────────────────────────────────
+
+static class Extensions
+{
+    // Extends string
+    public static bool IsPalindrome(this string s)
+    {
+        s = s.ToLower();
+        return s.SequenceEqual(s.Reverse());
+    }
+
+    // Extends IEnumerable<T>
+    public static IEnumerable<T> WhereNotNull<T>(this IEnumerable<T?> source)
+        where T : class
+        => source.Where(x => x is not null)!;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 10. ATTRIBUTES  (custom attribute definition)
+// ─────────────────────────────────────────────────────────────
+
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
+sealed class AuthorAttribute : Attribute
+{
+    public string Name    { get; }
+    public int    Version { get; set; } = 1;
+    public AuthorAttribute(string name) => Name = name;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 11. PATTERN MATCHING  (demonstrated inside the main class)
+// ─────────────────────────────────────────────────────────────
+
+static class Patterns
+{
+    public static string Classify(object obj) => obj switch
+    {
+        // Type pattern
+        int n when n < 0        => "negative int",
+        int n                   => $"positive int {n}",
+
+        // Property pattern (C# 8)
+        Circle { Radius: > 10 } => "large circle",
+        Circle c                => $"small circle r={c.Radius}",
+
+        // Positional / deconstruct pattern (C# 8)
+        Point2D(0, 0)           => "origin",
+        Point2D(var x, var y)   => $"point ({x},{y})",
+
+        // Relational pattern (C# 9)
+        double d and >= 0       => $"non-negative double {d}",
+
+        // Logical pattern (C# 9)
+        string s and not ""     => $"non-empty string: {s}",
+
+        // List pattern (C# 11)
+        int[] [1, 2, ..]        => "array starts with 1, 2",
+
+        null                    => "null",
+        _                       => "other"
+    };
+
+    // is-pattern with declaration
+    public static void IsPattern(object o)
+    {
+        if (o is string { Length: > 5 } s)
+            Console.WriteLine($"Long string: {s}");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 12. LINQ
+// ─────────────────────────────────────────────────────────────
+
+static class LinqDemo
+{
+    public static void Run()
+    {
+        int[] numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; // collection expr (C# 12)
+
+        // Query syntax
+        var evens =
+            from n in numbers
+            where n % 2 == 0
+            orderby n descending
+            select n * n;
+
+        // Method syntax + lambda
+        var odds = numbers
+            .Where(n => n % 2 != 0)
+            .Select(n => (n, Square: n * n))   // anonymous tuple
+            .ToList();
+
+        Console.WriteLine("Evens²: " + string.Join(", ", evens));
+        Console.WriteLine("Odds:   " + string.Join(", ", odds));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 13. UNSAFE CODE & POINTERS
+// ─────────────────────────────────────────────────────────────
+
+static class UnsafeDemo
+{
+    // Requires /unsafe compiler flag
+    public static unsafe void SwapInts(int* a, int* b)
+    {
+        int tmp = *a;
+        *a = *b;
+        *b = tmp;
+    }
+
+    public static void Run()
+    {
+        unsafe
+        {
+            int x = 10, y = 20;
+            SwapInts(&x, &y);
+            Console.WriteLine($"After unsafe swap: x={x}, y={y}");
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 14. EXCEPTION HANDLING
+// ─────────────────────────────────────────────────────────────
+
+static class ExceptionDemo
+{
+    // Custom exception
+    sealed class DomainException : Exception
+    {
+        public int Code { get; }
+        public DomainException(string msg, int code) : base(msg) => Code = code;
+    }
+
+    public static void Run()
+    {
+        try
+        {
+            throw new DomainException("something went wrong", 42);
+        }
+        catch (DomainException ex) when (ex.Code == 42)   // exception filter (C# 6)
+        {
+            Console.WriteLine($"Caught domain error {ex.Code}: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Generic catch: {ex.Message}");
+            throw;        // rethrow preserving stack trace
+        }
+        finally
+        {
+            Console.WriteLine("Finally always runs.");
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 15. ASYNC STREAMS  (IAsyncEnumerable, C# 8)
+// ─────────────────────────────────────────────────────────────
+
+static class AsyncStreamDemo
+{
+    public static async IAsyncEnumerable<int> CountAsync(
+        int to,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        for (int i = 1; i <= to; i++)
+        {
+            await Task.Delay(1, ct);
+            yield return i;
+        }
+    }
+
+    public static async Task Run()
+    {
+        await foreach (int n in CountAsync(5))
+            Console.Write(n + " ");
+        Console.WriteLine();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 16. NULLABLE REFERENCE TYPES  (C# 8, enabled project-wide or via pragma)
+// ─────────────────────────────────────────────────────────────
+
+#nullable enable
+
+static class NullableDemo
+{
+    // Nullable reference type annotation
+    static string? MaybeNull(bool give) => give ? "hello" : null;
+
+    // Null-forgiving operator  !
+    static int LengthOrZero(bool give) => MaybeNull(give)!.Length;
+
+    // Null-coalescing assignment  ??=  (C# 8)
+    static string Ensure(ref string? s) => s ??= "default";
+
+    // NotNullWhen attribute
+    static bool TryGet([NotNullWhen(true)] out string? value)
+    {
+        value = "found";
+        return true;
+    }
+}
+
+#nullable restore
+
+// ─────────────────────────────────────────────────────────────
+// 17. TUPLES, DECONSTRUCTION, DISCARDS
+// ─────────────────────────────────────────────────────────────
+
+static class TupleDemo
+{
+    // Named tuple return
+    public static (double Min, double Max, double Avg) Stats(IEnumerable<double> data)
+    {
+        var list = data.ToList();
+        return (list.Min(), list.Max(), list.Average());
+    }
+
+    public static void Run()
+    {
+        var (min, max, avg) = Stats([3, 1, 4, 1, 5, 9]); // deconstruction
+        Console.WriteLine($"min={min} max={max} avg={avg:F2}");
+
+        // Discard _
+        var (_, second, _) = (10, 20, 30);
+        Console.WriteLine($"second={second}");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 18. INTERPOLATED STRINGS, RAW STRINGS, UTF-8 LITERALS (C# 10-11)
+// ─────────────────────────────────────────────────────────────
+
+static class StringDemo
+{
+    public static void Run()
+    {
+        double pi = Math.PI;
+
+        // Interpolated string (C# 6)
+        Console.WriteLine($"pi = {pi:F4}");
+
+        // Verbatim string
+        string path = @"C:\Users\Name\file.txt";
+
+        // Multi-line raw string literal (C# 11)
+        string raw = """
+            {
+                "key": "value"
+            }
+            """;
+
+        // Interpolated raw string
+        string json = $"""
+            {{ "pi": {pi:F2} }}
+            """;
+
+        // UTF-8 string literal (C# 11) — produces ReadOnlySpan<byte>
+        ReadOnlySpan<byte> utf8 = "hello"u8;
+
+        Console.WriteLine(path);
+        Console.WriteLine(raw);
+        Console.WriteLine(json);
+        Console.WriteLine($"UTF-8 byte count: {utf8.Length}");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 19. SPAN<T>, MEMORY<T>, STACKALLOC
+// ─────────────────────────────────────────────────────────────
+
+static class SpanDemo
+{
+    public static void Run()
+    {
+        // stackalloc without unsafe (safe context, C# 7.2+)
+        Span<int> span = stackalloc int[8];
+        for (int i = 0; i < span.Length; i++) span[i] = i * i;
+
+        // Slice (no allocation)
+        Span<int> slice = span[2..6];
+        Console.WriteLine("Span slice: " + string.Join(", ", slice.ToArray()));
+
+        // String as ReadOnlySpan
+        ReadOnlySpan<char> word = "Hello, World!".AsSpan(7, 5);
+        Console.WriteLine($"Span from string: {word}");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 20. REFLECTION
+// ─────────────────────────────────────────────────────────────
+
+static class ReflectionDemo
+{
+    public static void Run()
+    {
+        Type t = typeof(Circle);
+        Console.WriteLine($"Type: {t.FullName}");
+
+        foreach (var prop in t.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            Console.WriteLine($"  Prop: {prop.Name} : {prop.PropertyType.Name}");
+
+        // Dynamic instantiation
+        object? obj = Activator.CreateInstance(t);
+        Console.WriteLine($"Created: {obj}");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 21. CALLER INFO ATTRIBUTES  (C# 5)
+// ─────────────────────────────────────────────────────────────
+
+static class Logger
+{
+    public static void Log(
+        string message,
+        [CallerMemberName] string member = "",
+        [CallerFilePath]   string file   = "",
+        [CallerLineNumber] int    line   = 0)
+    {
+        Console.WriteLine($"[{file}:{line} {member}] {message}");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 22. INTEROP — P/Invoke  (platform-specific, declaration only)
+// ─────────────────────────────────────────────────────────────
+
+static partial class NativeMethods
+{
+    // LibraryImport (C# 9 / .NET 7 source-generated P/Invoke)
+    [LibraryImport("libc", EntryPoint = "abs", SetLastError = false)]
+    public static partial int Abs(int value);
+
+    // Classic DllImport for comparison
+    [DllImport("libc", EntryPoint = "abs")]
+    public static extern int AbsLegacy(int value);
+}
+
+// ─────────────────────────────────────────────────────────────
+// 23. COLLECTION EXPRESSIONS  (C# 12)
+// ─────────────────────────────────────────────────────────────
+
+static class CollectionExprDemo
+{
+    public static void Run()
+    {
+        int[]        arr   = [1, 2, 3];
+        List<int>    list  = [4, 5, 6];
+        Span<int>    span  = [7, 8, 9];
+
+        // Spread operator  ..
+        int[] merged = [..arr, ..list, ..span];
+        Console.WriteLine("Merged: " + string.Join(", ", merged));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 24. MISCELLANEOUS FEATURES
+// ─────────────────────────────────────────────────────────────
+
+static class MiscDemo
+{
+    // ── Checked / Unchecked arithmetic ───────────────────────
+    static int CheckedAdd(int a, int b) { checked { return a + b; } }
+
+    // ── sizeof operator ──────────────────────────────────────
+    static void SizeOfDemo() => Console.WriteLine($"sizeof int = {sizeof(int)}");
+
+    // ── typeof & nameof ──────────────────────────────────────
+    static void NameofDemo() => Console.WriteLine(nameof(MiscDemo));
+
+    // ── using declaration (C# 8) ─────────────────────────────
+    static void UsingDecl()
+    {
+        using var ms = new System.IO.MemoryStream();
+        ms.WriteByte(42);
+    } // ms.Dispose() called here
+
+    // ── Conditional compilation ───────────────────────────────
+#if MY_SYMBOL
+    static void ConditionalMethod() =>
+        Console.WriteLine("MY_SYMBOL is defined");
+#endif
+
+    // ── lock statement ────────────────────────────────────────
+    static readonly object _sync = new();
+    static void SafeWrite(string msg) { lock (_sync) Console.WriteLine(msg); }
+
+    // ── goto (rarely used but part of the language) ───────────
+    static void GotoDemo()
+    {
+        int i = 0;
+        loop:
+        if (i < 3) { Console.Write($"{i} "); i++; goto loop; }
+        Console.WriteLine();
+    }
+
+    // ── fixed statement (pin managed object) ─────────────────
+    static unsafe void FixedDemo()
+    {
+        byte[] bytes = [10, 20, 30];
+        fixed (byte* p = bytes)
+            Console.WriteLine($"First byte via ptr: {*p}");
+    }
+
+    // ── Verbatim identifier ───────────────────────────────────
+    static void VerbatimIdent()
+    {
+        int @class = 5;    // @  lets keywords be used as identifiers
+        Console.WriteLine(@class);
+    }
+
+    public static void Run()
+    {
+        SizeOfDemo();
+        NameofDemo();
+        UsingDecl();
+#if MY_SYMBOL
+        ConditionalMethod();
+#endif
+        SafeWrite("thread-safe");
+        GotoDemo();
+        unsafe { FixedDemo(); }
+        VerbatimIdent();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 25. STATIC LOCAL FUNCTIONS, LAMBDA IMPROVEMENTS (C# 9-10)
+// ─────────────────────────────────────────────────────────────
+
+static class LambdaDemo
+{
+    public static void Run()
+    {
+        // Static lambda — cannot capture outer variables (C# 9)
+        Func<int, int> square = static x => x * x;
+
+        // Lambda with explicit return type (C# 10)
+        var parse = (string s) => int.Parse(s);
+
+        // Lambda with attributes (C# 10)
+        Func<int, int> traced = [DebuggerStepThrough] (int x) => x + 1;
+
+        // Natural type inference of method group (C# 10)
+        Func<string, int> len = "hello".IndexOf;   // method group
+
+        Console.WriteLine(square(6));
+        Console.WriteLine(parse("123"));
+        Console.WriteLine(traced(99));
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 26. REQUIRED MEMBERS & PRIMARY CONSTRUCTORS (C# 11-12)
+// ─────────────────────────────────────────────────────────────
+
+// Primary constructor on a class (C# 12)
+class Sensor(string id, double threshold)
+{
+    public string   Id        { get; } = id;
+    public double   Threshold { get; } = threshold;
+
+    // required member (C# 11)
+    public required string Unit { get; init; }
+
+    public bool IsTriggered(double value) => value > Threshold;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 27. PROGRAM ENTRY POINT
+// ─────────────────────────────────────────────────────────────
+
+[Author("Demo", Version = 2)]
+class Program
+{
+    static async Task Main(string[] args)
+    {
+        Console.WriteLine("═══ C# Language Features Demo ═══\n");
+
+        // ── Circles & operator overloading ───────────────────
+        var c1 = new Circle(3.0, "Alpha");
+        var c2 = new Circle(4.0, "Beta");
+        var c3 = c1 + c2;
+        Console.WriteLine($"c1={c1}  c2={c2}  c1+c2={c3}");
+        Console.WriteLine($"c1[100] (100-gon approx)={c1[100]:F4}");
+
+        // ── Records ──────────────────────────────────────────
+        var p1 = new Person("Jane", "Doe") { Age = 30 };
+        var p2 = p1 with { FirstName = "John" };  // non-destructive mutation
+        Console.WriteLine($"\nRecord: {p1}");
+        Console.WriteLine($"With:   {p2}");
+        Console.WriteLine($"Equal:  {p1 == p2}");
+
+        // ── Pattern matching ─────────────────────────────────
+        Console.WriteLine("\n-- Patterns --");
+        foreach (object obj in new object[] { -5, 42, c1, new Point2D(0,0), "hi", null! })
+            Console.WriteLine($"  {obj ?? "null"} => {Patterns.Classify(obj)}");
+
+        // ── Deconstruction ───────────────────────────────────
+        var (x, y) = new Point2D(3, 4);
+        Console.WriteLine($"\nDeconstructed point: x={x}, y={y}");
+
+        // ── LINQ ─────────────────────────────────────────────
+        Console.WriteLine("\n-- LINQ --");
+        LinqDemo.Run();
+
+        // ── Tuples ───────────────────────────────────────────
+        Console.WriteLine("\n-- Tuples --");
+        TupleDemo.Run();
+
+        // ── Strings ──────────────────────────────────────────
+        Console.WriteLine("\n-- Strings --");
+        StringDemo.Run();
+
+        // ── Span --
+        Console.WriteLine("\n-- Span --");
+        SpanDemo.Run();
+
+        // ── Async streams ─────────────────────────────────────
+        Console.WriteLine("\n-- Async stream --");
+        await AsyncStreamDemo.Run();
+
+        // ── Exception handling ────────────────────────────────
+        Console.WriteLine("\n-- Exceptions --");
+        ExceptionDemo.Run();
+
+        // ── Lambdas ───────────────────────────────────────────
+        Console.WriteLine("\n-- Lambdas --");
+        LambdaDemo.Run();
+
+        // ── Collection expressions ────────────────────────────
+        Console.WriteLine("\n-- Collection Expressions --");
+        CollectionExprDemo.Run();
+
+        // ── Primary constructor / required member ─────────────
+        var sensor = new Sensor("SEN-001", 75.0) { Unit = "°C" };
+        Console.WriteLine($"\nSensor {sensor.Id}: triggered={sensor.IsTriggered(80)}");
+
+        // ── Misc ──────────────────────────────────────────────
+        Console.WriteLine("\n-- Misc --");
+        MiscDemo.Run();
+
+        // ── Reflection ────────────────────────────────────────
+        Console.WriteLine("\n-- Reflection --");
+        ReflectionDemo.Run();
+
+        // ── Caller info ───────────────────────────────────────
+        Console.WriteLine("\n-- Caller Info --");
+        Logger.Log("Hello from Main");
+
+        // ── Extension method ──────────────────────────────────
+        Console.WriteLine($"\n\"racecar\" is palindrome: {"racecar".IsPalindrome()}");
+
+        // ── Unsafe ───────────────────────────────────────────
+        Console.WriteLine("\n-- Unsafe --");
+        UnsafeDemo.Run();
+
+        // ── Flags enum ───────────────────────────────────────
+        Permissions perms = Permissions.Read | Permissions.Write;
+        Console.WriteLine($"\nPermissions: {perms}  HasExecute={perms.HasFlag(Permissions.Execute)}");
+
+        Console.WriteLine("\n═══ Done ═══");
+    }
+}
